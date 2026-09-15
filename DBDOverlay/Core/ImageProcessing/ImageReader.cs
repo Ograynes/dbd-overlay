@@ -41,6 +41,7 @@ namespace DBDOverlay.Core.ImageProcessing
         private int hooksThreshold;
 
         private TesseractEngine engine;
+        private readonly object ocrGate = new object();
         private static ImageReader instance;
 
         public static ImageReader Instance
@@ -61,16 +62,28 @@ namespace DBDOverlay.Core.ImageProcessing
 
         public void SetEngine()
         {
-            engine?.Dispose();
-            engine = new TesseractEngine(FileSystem.TessData, LanguagesManager.ConvertMexToSpa(Settings.Default.Language));
+            lock (ocrGate)
+            {
+                var replacement = new TesseractEngine(FileSystem.TessData, LanguagesManager.ConvertMexToSpa(Settings.Default.Language));
+                engine?.Dispose();
+                engine = replacement;
+            }
         }
 
         public MapInfo GetMapInfo(bool autoMode = false)
         {
+            if (!GameCapture.TryGetBounds(out _)) { Thread.Sleep(200); return null; }
+            if (!Monitor.TryEnter(ocrGate)) { Thread.Sleep(200); return null; }
+            try { return GetMapInfoCore(autoMode); }
+            finally { Monitor.Exit(ocrGate); }
+        }
+
+        private MapInfo GetMapInfoCore(bool autoMode)
+        {
             var log = !autoMode;
             if (log) Logger.Info($"=============== Start getting map info ===============");
             var watch = Stopwatch.StartNew();
-            var bitmap = CreateFromScreenArea(autoMode ? RectType.Auto : RectType.Manual, log);
+            using var bitmap = CreateFromScreenArea(autoMode ? RectType.Auto : RectType.Manual, log);
 
             var maxScale = autoMode ? maxScaleAuto : maxScaleManual;
             var scaleStep = autoMode ? scaleStepAuto : scaleStepManual;
@@ -80,7 +93,7 @@ namespace DBDOverlay.Core.ImageProcessing
                 {
                     if (log) Logger.Info($"===== Size = {scale}, Threshold = {threshold} =====");
                     var saveName = autoMode ? null : Settings.Default.ManualScreenshotFileName;
-                    RecognizeText(bitmap.PreProcess(scale, threshold, saveName, true), log);
+                    using (var preprocessed = bitmap.PreProcess(scale, threshold, saveName, true)) RecognizeText(preprocessed, log);
                     if (IsMapTextCorrect(autoMode))
                     {
                         if (log) Logger.Info("Map text is correct");
@@ -95,7 +108,7 @@ namespace DBDOverlay.Core.ImageProcessing
                             mapInfo.Time = time;
                             if (log) Logger.Info($"=============== Finish getting map info ===============");
                             if (log) Logger.Info($"=============== ({time} ms) ===============");
-                            bitmap.Dispose();
+
                             return mapInfo;
                         }
                         if (scale == maxScale)
@@ -113,7 +126,7 @@ namespace DBDOverlay.Core.ImageProcessing
             watch.Stop();
             if (log) Logger.Info($"=============== Finish getting map info ===============");
             if (log) Logger.Info($"=============== ({watch.ElapsedMilliseconds} ms) ===============");
-            bitmap.Dispose();
+
 
             var delay = (int)(operationTime - watch.ElapsedMilliseconds);
             if (delay > 0) Thread.Sleep(delay);
@@ -191,11 +204,10 @@ namespace DBDOverlay.Core.ImageProcessing
 
         private Bitmap CreateFromScreenArea(RectType rectType, bool save = true)
         {
-            var rect = GetRect(rectType);
-            var bitmap = new Bitmap(rect.Width, rect.Height, PixelFormat.Format32bppRgb);
-            var graphics = Graphics.FromImage(bitmap);
-            graphics.CopyFromScreen(rect.Left, rect.Top, 0, 0, rect.Size);
-            graphics.Dispose();
+            if (!GameCapture.TryGetBounds(out var client)) throw new InvalidOperationException("Bring Dead by Daylight to the foreground to read the map.");
+            var rect = GetRect(rectType, client.Width, client.Height);
+            rect.Offset(client.Location);
+            var bitmap = GameCapture.Capture(rect);
 
             if (save)
             {
@@ -225,8 +237,7 @@ namespace DBDOverlay.Core.ImageProcessing
         private void RecognizeText(Bitmap bitmap, bool log = true)
         {
             var watch = Stopwatch.StartNew();
-            var pixImage = PixConverter.ToPix(bitmap);
-            SetText(pixImage);
+            using (var pixImage = PixConverter.ToPix(bitmap)) SetText(pixImage);
             watch.Stop();
             if (log) Logger.Info($"Text from image is recognized ({watch.ElapsedMilliseconds} ms)");
         }
@@ -243,8 +254,7 @@ namespace DBDOverlay.Core.ImageProcessing
                 SetEngine();
                 page = engine.Process(pixImage);
             }
-            text = page.GetText();
-            page.Dispose();
+            using (page) text = page.GetText();
         }
 
         private bool IsMapTextCorrect(bool autoMode = false)

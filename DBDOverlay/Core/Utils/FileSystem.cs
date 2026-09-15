@@ -65,7 +65,7 @@ namespace DBDOverlay.Core.Utils
         {
             return Directory.EnumerateFiles(path, $"*.{ini}", SearchOption.TopDirectoryOnly)
                 .Select(Path.GetFileNameWithoutExtension)
-                .Where(f => !string.Equals(f, $"{ReShade}") && !string.Equals(f, $"{Settings.Default.MainFilterName}")).ToList();
+                .Where(f => !string.Equals(f, ReShade, StringComparison.OrdinalIgnoreCase) && !string.Equals(f, Settings.Default.MainFilterName, StringComparison.OrdinalIgnoreCase)).ToList();
         }
 
         public static void CopyIniFile(string from, string to)

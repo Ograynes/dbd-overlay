@@ -35,10 +35,15 @@ namespace DBDOverlay.Core.Hotkeys
             KeyboardHook.Instance.Dispose();
         }
 
-        private static void PressedRead(object sender, KeyPressedEventArgs e)
+        private static async void PressedRead(object sender, KeyPressedEventArgs e)
         {
             e.Log("Read map");
-            MapOverlayController.Instance.ChangeMap(ImageReader.Instance.GetMapInfo());
+            try
+            {
+                var map = await System.Threading.Tasks.Task.Run(() => ImageReader.Instance.GetMapInfo());
+                MapOverlayController.Instance.ChangeMap(map);
+            }
+            catch (System.Exception error) { System.Windows.MessageBox.Show(error.Message, "Map recognition"); }
         }
 
         private static void PressedNext(object sender, KeyPressedEventArgs e)

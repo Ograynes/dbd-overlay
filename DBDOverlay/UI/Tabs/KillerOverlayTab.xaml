@@ -10,11 +10,13 @@
              Background="{DynamicResource DarkestGrayBrush}">
 
     <ScrollViewer VerticalScrollBarVisibility="Auto">
-    <StackPanel>
+    <StackPanel Margin="14,10,14,20">
+        <TextBlock Text="Survivor tracking" Foreground="White" FontSize="23" FontWeight="SemiBold"/>
+        <TextBlock Text="Calibrate once for your HUD, then verify detection in a custom match." Foreground="{DynamicResource LightGrayBrush}" TextWrapping="Wrap" Margin="0,6,0,12"/>
         <WrapPanel Margin="0,8">
-            <Button Content="Calibrate region" Click="Calibrate_Click" Margin="4" Padding="8"/>
-            <Button Content="Learn unhooked state" Click="LearnUnhooked_Click" Margin="4" Padding="8"/>
-            <Button Content="Reset calibration" Click="ResetCalibration_Click" Margin="4" Padding="8"/>
+            <Button Content="Calibrate region" Click="Calibrate_Click" Margin="0,4,8,4" Width="130" Height="34" Style="{StaticResource ButtonStyle}"/>
+            <Button Content="Learn unhooked state" Click="LearnUnhooked_Click" Margin="0,4,8,4" Width="160" Height="34" Style="{StaticResource ButtonBackStyle}"/>
+            <Button Content="Reset calibration" Click="ResetCalibration_Click" Margin="0,4,8,4" Width="130" Height="34" Style="{StaticResource ButtonBackStyle}"/>
         </WrapPanel>
         <TextBlock Text="Calibrate the state column, then learn visible unhooked states. Unknown images never start a timer. Reset calibration also clears learned images for this mode."
                    Foreground="White" TextWrapping="Wrap" Margin="4"/>

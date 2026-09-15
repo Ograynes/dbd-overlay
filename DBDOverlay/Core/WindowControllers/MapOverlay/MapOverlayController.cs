@@ -47,11 +47,12 @@ namespace DBDOverlay.Core.WindowControllers.MapOverlay
 
         public bool CanMapOverlayBeApplied(MapInfo mapInfo)
         {
-            return mapInfo != null && !name.Equals(mapInfo.Name);
+            return mapInfo != null && (!name.Equals(mapInfo.Name) || !realm.Equals(mapInfo.Realm));
         }
 
         public void SwitchMapVariationToNext()
         {
+            if (string.IsNullOrEmpty(name)) return;
             var suffix = name.GetLast(suffixLength);
             suffix = suffix.First().ToString().Equals("_") && suffix.Last().ToString().IsInt()
                 ? $"_{suffix.Increment()}" : "_2";
@@ -68,6 +69,7 @@ namespace DBDOverlay.Core.WindowControllers.MapOverlay
 
         public void SwitchMapVariationToPrevious()
         {
+            if (string.IsNullOrEmpty(name)) return;
             var suffix = name.GetLast(suffixLength);
             if (suffix.First().ToString().Equals("_") && suffix.Last().ToString().IsInt())
             {

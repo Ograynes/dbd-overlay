@@ -1,4 +1,4 @@
-﻿using DBDOverlay.Core.Hotkeys;
+using DBDOverlay.Core.Hotkeys;
 using DBDOverlay.Core.WindowControllers.KillerOverlay;
 using DBDOverlay.Core.WindowControllers.MapOverlay;
 using DBDOverlay.Properties;
@@ -79,8 +79,13 @@ namespace DBDOverlay.Core.Windows
         public void HandleWindowEvent(int hWinEventHook, uint eventType,
             int hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
         {
-            HandleMapOverlayMoveMode();
-            HandleKillerOverlayMoveMode();
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher == null || dispatcher.HasShutdownStarted) return;
+            dispatcher.BeginInvoke(new Action(() =>
+            {
+                HandleMapOverlayMoveMode();
+                HandleKillerOverlayMoveMode();
+            }));
         }
 
         public bool IsAppWindow()
@@ -111,36 +116,25 @@ namespace DBDOverlay.Core.Windows
             processes.ForEach(x => x.Kill());
         }
 
+        private System.Windows.Threading.DispatcherTimer monitor;
         public void StartMonitoring(int interval = 200)
         {
+            if (monitor != null) return;
+            bool? lastState = null;
             IsMonitoringActive = true;
-            bool lastState = false;
-
-            Task.Run(async () =>
+            monitor = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(Math.Max(50, interval)) };
+            monitor.Tick += (s, e) =>
             {
-                while (IsMonitoringActive)
-                {
-                    var currentState = IsDBDActive();
-
-                    if (currentState != lastState)
-                    {
-                        lastState = currentState;
-
-                        _ = Application.Current.Dispatcher.BeginInvoke(new Action(() =>
-                        {
-                            HandleActiveWindow(currentState);
-                        }));
-                    }
-                    await Task.Delay(interval);
-                }
-            });
+                bool state = IsDBDActive();
+                if (lastState != state) { lastState = state; HandleActiveWindow(state); }
+            };
+            monitor.Start();
         }
-
         public void StopMonitoring()
         {
             IsMonitoringActive = false;
+            monitor?.Stop(); monitor = null;
         }
-
         public void CheckActiveWindow()
         {
             bool isActive = IsDBDActive();
@@ -153,22 +147,15 @@ namespace DBDOverlay.Core.Windows
 
         private bool IsDBDActive()
         {
-            string processName = null;
-
             var handle = GetForegroundWindow();
-            if (handle != 0)
-            {
-                GetWindowThreadProcessId(handle, out uint pid);
-                if (pid != 0)
-                {
-                    var process = Process.GetProcessById((int)pid);
-                    processName = process.ProcessName;
-                }
-            }
-
-            return dbdProcessNames.Contains(processName);
+            if (handle == 0) return false;
+            GetWindowThreadProcessId(handle, out uint pid);
+            if (pid == 0) return false;
+            try { using (var process = Process.GetProcessById((int)pid)) return dbdProcessNames.Contains(process.ProcessName); }
+            catch (ArgumentException) { return false; }
+            catch (InvalidOperationException) { return false; }
+            catch (System.ComponentModel.Win32Exception) { return false; }
         }
-
         private void HandleActiveWindow(bool isActive)
         {
             HandleHotkeys(isActive);

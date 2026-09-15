@@ -34,6 +34,7 @@ namespace DBDOverlay.UI.Windows
 
             MapOverlayTab.IsChecked = true;
             LocationChanged += MainWindow_LocationChanged;
+            DBDOverlay.Core.Reshade.ReshadeManager.Instance.StartReloadTimer();
         }
 
         private void WindowMouseDown(object sender, MouseButtonEventArgs e)
@@ -79,19 +80,24 @@ namespace DBDOverlay.UI.Windows
             else KillerOverlayController.Window.SetKillerWindowHiddenPosition();
         }
 
-        private void ExitButtonClick(object sender, RoutedEventArgs e)
+        private void ExitButtonClick(object sender, RoutedEventArgs e) => Close();
+
+        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
         {
+            base.OnClosing(e);
+            if (e.Cancel) return;
             Logger.Info("---Close Application---");
+            DBDOverlay.Core.Reshade.ReshadeManager.Instance.StopReloadTimer();
             WindowsServices.Instance.StopMonitoring();
             KillerOverlayController.Instance.ResetSurvivors();
             KillerMode.Instance.Stop();
             AutoMode.Instance.Stop();
             HotKeysController.Dispose();
-            MapOverlayController.Overlay.Close();
-            KillerOverlayController.Overlay.Close();
-            KillerOverlayController.Window.Close();
-            Close();
-            WindowsServices.Instance.CloseRedundantProcesses();
+        }
+
+        protected override void OnClosed(EventArgs e)
+        {
+            base.OnClosed(e);
             Application.Current.Shutdown();
         }
     }

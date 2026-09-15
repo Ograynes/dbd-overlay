@@ -1,10 +1,10 @@
-﻿using DBDOverlay.Core.Reshade;
+using DBDOverlay.Core.Reshade;
 using DBDOverlay.Core.Utils;
 using DBDOverlay.Properties;
-using DBDOverlay.UI.Styles;
 using DBDOverlay.UI.Windows;
-using DBDOverlay.UI.Windows.Overlays;
 using Microsoft.WindowsAPICodePack.Dialogs;
+using System;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 
@@ -12,156 +12,88 @@ namespace DBDOverlay.UI.Tabs
 {
     public partial class ReshadeTabView : UserControl
     {
-        private readonly string reshadeFolderPlaceholder = "Select Reshade folder with filters (.ini files)";
-
+        private bool initializing = true;
         public ReshadeTabView()
         {
             InitializeComponent();
-            UpdateReshadePath(Settings.Default.ReshadeFiltersPath);
-            UpdateFilters();
-            UpdateGenerateFilterUI();
+            if (string.IsNullOrWhiteSpace(IntegrationSettings.Default.ConfigPath))
+            {
+                IntegrationSettings.Default.ConfigPath = ReShadeReload.FindConfig();
+                IntegrationSettings.Default.Save();
+            }
+            AutoApplyToggle.IsChecked = IntegrationSettings.Default.AutoReload;
+            RefreshView(); initializing = false;
+            Loaded += (s, e) => { ReshadeManager.Instance.StatusChanged += StatusChanged; RefreshView(); };
+            Unloaded += (s, e) => ReshadeManager.Instance.StatusChanged -= StatusChanged;
         }
-
+        private void StatusChanged(object sender, EventArgs e) => Dispatcher.Invoke(RefreshStatus);
+        private void RefreshStatus()
+        {
+            ApplyStatus.Text = ReshadeManager.Instance.Status;
+            ActiveFilter.Text = ReshadeManager.Instance.LastFilter;
+            ActiveMap.Text = ReshadeManager.Instance.LastMap;
+        }
+        private void RefreshView()
+        {
+            ReShadePathTextBox.Text = Settings.Default.ReshadeFiltersPath;
+            ConfigPathTextBox.Text = IntegrationSettings.Default.ConfigPath;
+            MainFilterNameTextBox.Text = string.IsNullOrWhiteSpace(Settings.Default.MainFilterName) ? "DBDOverlay" : Settings.Default.MainFilterName;
+            int count = ReshadeManager.Instance.Filters.Count;
+            FiltersStatusLabel.Text = $"{count} filters found";
+            AssignFiltersButton.IsEnabled = count > 0;
+            GenerateFilterButton.IsEnabled = count > 0 && !ReshadeManager.Instance.FilterExists(Settings.Default.MainFilterName);
+            MainFilterNameTextBox.IsEnabled = GenerateFilterButton.IsEnabled;
+            RefreshStatus();
+        }
+        private void Run(Action action)
+        {
+            try { action(); RefreshView(); }
+            catch (Exception error) { ApplyStatus.Text = error.Message; Logger.Warn(error.Message); }
+        }
         private void OpenFolder_Click(object sender, RoutedEventArgs e)
         {
-            var dialog = new CommonOpenFileDialog
-            {
-                IsFolderPicker = true,
-                Title = "Select ReShade folder"
-            };
-            if (dialog.ShowDialog() == CommonFileDialogResult.Ok)
-            {
-                HandleNewReshadeFolder(dialog.FileName + @"\");
-            }
+            using (var dialog = new CommonOpenFileDialog { IsFolderPicker = true, Title = "Select ReShade preset folder" })
+                if (dialog.ShowDialog() == CommonFileDialogResult.Ok) Run(() => ChangeFolder(dialog.FileName));
         }
-
-        private void ClearFolder_Click(object sender, RoutedEventArgs e)
+        private void ChangeFolder(string folder)
         {
-            HandleNewReshadeFolder(string.Empty);
-        }
-
-        private void RefreshFilters_Click(object sender, RoutedEventArgs e)
-        {
-            ReshadeManager.Instance.Initialize();
-            UpdateFilters();
-            UpdateGenerateFilterUI();
-        }
-
-        private void GenerateFilter_Click(object sender, RoutedEventArgs e)
-        {
-            if (!FileSystem.IsValidFileName(MainFilterNameTextBox.Text)) return;
-            Settings.Default.MainFilterName = MainFilterNameTextBox.Text;
-            Settings.Default.Save();
-            FileSystem.CreateFile(GetMainFilterPath());
-            ReshadeManager.Instance.ApplyBaseFilter();
-            EnableGenerateFilterUI(false);            
-        }
-
-        private void DeleteFilter_Click(object sender, RoutedEventArgs e)
-        {
-            FileSystem.DeleteFile(GetMainFilterPath());
-            Settings.Default.MainFilterName = string.Empty;
-            Settings.Default.Save();
-            EnableGenerateFilterUI(!Settings.Default.ReshadeFiltersPath.Equals(string.Empty));
-        }
-
-        private void AssignFilters_Click(object sender, RoutedEventArgs e)
-        {
-            var overlay = new ModalOverlayWindow
-            {
-                Owner = App.Current.MainWindow,
-                WindowStartupLocation = WindowStartupLocation.Manual,
-                Left = App.Current.MainWindow.Left,
-                Top = App.Current.MainWindow.Top,
-                Width = App.Current.MainWindow.ActualWidth,
-                Height = App.Current.MainWindow.ActualHeight
-            };
-
-            overlay.Show();
-
-            var assignFiltersWindow = new AssignFiltersWindow
-            {
-                Owner = App.Current.MainWindow
-            };
-            assignFiltersWindow.ShowDialog();
-            overlay.Close();
-            App.Current.MainWindow.Activate();
-        }
-
-        private void HandleNewReshadeFolder(string folderPath)
-        {
-            if (folderPath.Equals(Settings.Default.ReshadeFiltersPath)) return;
-            UpdateReshadePath(folderPath);
-            Settings.Default.ReshadeFiltersPath = folderPath;
-            Settings.Default.ReshadeMappings = string.Empty;
+            if (string.Equals(folder.TrimEnd('\\'), Settings.Default.ReshadeFiltersPath.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)) return;
+            ReshadeManager.Instance.CancelReload();
+            Settings.Default.ReshadeFiltersPath = folder;
+            Settings.Default.ReshadeMappings = "";
             Settings.Default.Save();
             ReshadeManager.Instance.Initialize();
-            UpdateFilters();
-            var isFolderEmpty = folderPath.Equals(string.Empty);
-            EnableGenerateFilterUI(!isFolderEmpty);
-            if (isFolderEmpty) FileSystem.DeleteFile(GetMainFilterPath());
-            Settings.Default.MainFilterName = string.Empty;
+            ReshadeManager.Instance.ClearMapFilterPairs();
         }
-
-        private void UpdateReshadePath(string folderPath)
+        private void ClearFolder_Click(object sender, RoutedEventArgs e) => Run(() => ChangeFolder(""));
+        private void RefreshFilters_Click(object sender, RoutedEventArgs e) => Run(() => ReshadeManager.Instance.Initialize());
+        private void GenerateFilter_Click(object sender, RoutedEventArgs e) => Run(() =>
         {
-            if (folderPath.Equals(string.Empty))
+            var name = MainFilterNameTextBox.Text.Trim();
+            var path = PresetStore.Resolve(Settings.Default.ReshadeFiltersPath, name);
+            if (File.Exists(path)) throw new IOException("That preset already exists. Choose another name.");
+            if (ReshadeManager.Instance.Filters.Count == 0) throw new IOException("Add a source filter first.");
+            PresetStore.Copy(Settings.Default.ReshadeFiltersPath, ReshadeManager.Instance.Filters[0], name);
+            Settings.Default.MainFilterName = name; Settings.Default.Save();
+        });
+        private void AssignFilters_Click(object sender, RoutedEventArgs e) => Run(() =>
+        {
+            new AssignFiltersWindow { Owner = Application.Current.MainWindow }.ShowDialog();
+        });
+        private void SelectConfig_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new Microsoft.Win32.OpenFileDialog { Filter = "ReShade configuration|ReShade.ini|INI files|*.ini", Title = "Select the game's ReShade.ini" };
+            if (dialog.ShowDialog() == true) Run(() =>
             {
-                ReShadePathTextBox.Text = reshadeFolderPlaceholder;
-                ReShadePathTextBox.Foreground = Palette.LightGrayBrush;
-                ReShadePathTextBox.BorderThickness = new Thickness(0, 0, 0, 1);
-            }
-            else
-            {
-                ReShadePathTextBox.Text = folderPath;
-                ReShadePathTextBox.Foreground = Palette.WhiteBrush;
-                ReShadePathTextBox.BorderThickness = new Thickness(0, 0, 0, 0);
-            }
+                IntegrationSettings.Default.ConfigPath = dialog.FileName;
+                IntegrationSettings.Default.Save(); ReshadeManager.Instance.CancelReload();
+            });
         }
-
-        private void UpdateFilters()
+        private void AutoApply_Changed(object sender, RoutedEventArgs e)
         {
-            var filters = ReshadeManager.Instance.Filters;
-            if (filters != null && filters.Count > 0)
-            {
-                FiltersStatusLabel.Content = $"{filters.Count} filter(s) found ✓";
-                FiltersStatusLabel.Foreground = Palette.WhiteBrush;
-                AssignFiltersButton.IsEnabled = true;
-            }
-            else
-            {
-                FiltersStatusLabel.Content = $"No filters found ✕";
-                FiltersStatusLabel.Foreground = Palette.RedLightBrush;
-                AssignFiltersButton.IsEnabled = false;
-            }
+            if (initializing) return;
+            Run(() => ReshadeManager.Instance.SetAutomaticReload(AutoApplyToggle.IsChecked == true));
         }
-
-        private void UpdateGenerateFilterUI()
-        {
-            UpdateMainFilter();
-            MainFilterNameTextBox.Text = Settings.Default.MainFilterName;
-            var isEnabled = !Settings.Default.ReshadeFiltersPath.Equals(string.Empty) && Settings.Default.MainFilterName.Equals(string.Empty);
-            EnableGenerateFilterUI(isEnabled);
-        }
-
-        private void UpdateMainFilter()
-        {
-            if (!ReshadeManager.Instance.FilterExists(Settings.Default.MainFilterName))
-            {
-                Settings.Default.MainFilterName = string.Empty;
-                Settings.Default.Save();
-            }
-        }
-
-        private string GetMainFilterPath()
-        {
-            return $@"{Settings.Default.ReshadeFiltersPath}\{Settings.Default.MainFilterName}.ini";
-        }
-
-        private void EnableGenerateFilterUI(bool isEnable)
-        {
-            MainFilterNameTextBox.IsEnabled = isEnable;
-            GenerateFilterButton.IsEnabled = isEnable;
-        }
+        private void ApplyNow_Click(object sender, RoutedEventArgs e) => Run(() => ReshadeManager.Instance.RequestReload());
     }
 }

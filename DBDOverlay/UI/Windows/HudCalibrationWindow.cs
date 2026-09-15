@@ -20,7 +20,7 @@ namespace DBDOverlay.UI.Windows
         private readonly Canvas canvas;
         private readonly ComboBox slot;
         private readonly TextBlock status;
-        private readonly StackPanel buttons;
+        private readonly WrapPanel buttons;
         private readonly bool learn;
         private Point start;
         private HudGeometry geometry;
@@ -31,7 +31,7 @@ namespace DBDOverlay.UI.Windows
             this.snapshot = snapshot; this.eight = eight; this.learn = learn;
             Title = learn ? "Learn an unhooked state" : "Calibrate survivor detection";
             Width = Math.Min(1200, SystemParameters.WorkArea.Width); Height = Math.Min(850, SystemParameters.WorkArea.Height);
-            Background = Brushes.DimGray; WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            Background = (System.Windows.Media.Brush)FindResource("DarkestGrayBrush"); WindowStartupLocation = WindowStartupLocation.CenterScreen;
             var dock = new DockPanel(); Content = dock;
             var help = new TextBlock
             {
@@ -42,15 +42,15 @@ namespace DBDOverlay.UI.Windows
                 : "Drag a narrow column from the TOP of the first survivor's central state icon to the BOTTOM of the last. Include all slots, even empty ones. The outlined boxes must cover each state icon; exclude names and decorations. Save, then learn unhooked states."
             };
             DockPanel.SetDock(help, Dock.Top); dock.Children.Add(help);
-            buttons = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8) };
+            buttons = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8) };
             DockPanel.SetDock(buttons, Dock.Bottom); dock.Children.Add(buttons);
             slot = new ComboBox { Width = 130, Margin = new Thickness(5) };
             for (int i = 1; i <= (eight ? 8 : 4); i++) slot.Items.Add("Survivor " + i);
             slot.SelectedIndex = 0;
             if (learn) buttons.Children.Add(slot);
-            var save = new Button { Content = learn ? "Save unhooked reference" : "Save region", Margin = new Thickness(5), Padding = new Thickness(8) };
+            var save = new Button { Content = learn ? "Save unhooked reference" : "Save region", Margin = new Thickness(5), Width = 190, Height = 34, Style = (Style)FindResource("ButtonStyle") };
             save.Click += Save; buttons.Children.Add(save);
-            var cancel = new Button { Content = "Cancel", Margin = new Thickness(5), Padding = new Thickness(8) };
+            var cancel = new Button { Content = "Close", Margin = new Thickness(5), Width = 90, Height = 34, Style = (Style)FindResource("ButtonBackStyle") };
             cancel.Click += (s, e) => Close(); buttons.Children.Add(cancel);
             status = new TextBlock { Foreground = Brushes.White, Margin = new Thickness(8), TextWrapping = TextWrapping.Wrap, MaxWidth = 400 };
             buttons.Children.Add(status);

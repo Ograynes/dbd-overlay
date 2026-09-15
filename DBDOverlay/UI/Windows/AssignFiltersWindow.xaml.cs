@@ -57,8 +57,7 @@ namespace DBDOverlay.UI.Windows
             {
                 var comboBox = comboBoxes.Find(x => x.Name.Equals(list[mapIndex]));
                 comboBox.ItemsSource = ReshadeManager.Instance.Filters;
-                var filterIndex = MappingsHandler.GetFilterIndex(mapIndex);
-                if (filterIndex != -1) comboBox.SelectedIndex = filterIndex;
+                comboBox.SelectedItem = ReshadeManager.Instance.GetFilterForMap(list[mapIndex]);
             }
         }
 

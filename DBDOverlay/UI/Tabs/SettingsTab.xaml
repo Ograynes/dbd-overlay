@@ -1,4 +1,4 @@
-﻿<UserControl x:Class="DBDOverlay.UI.Tabs.SettingsTabView"
+<UserControl x:Class="DBDOverlay.UI.Tabs.SettingsTabView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
@@ -9,7 +9,8 @@
              d:DesignHeight="400" d:DesignWidth="500"
              Background="{DynamicResource DarkestGrayBrush}">
 
-    <StackPanel>
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+    <StackPanel Margin="14,10,14,20">
         <TextBlock Text="Game Language"
                    Foreground="White"
                    FontSize="22"
@@ -271,4 +272,5 @@
                        Unchecked="HideOverlays_Unchecked"/>
         </Grid>
     </StackPanel>
+    </ScrollViewer>
 </UserControl>

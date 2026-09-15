@@ -20,10 +20,24 @@ namespace DBDOverlay
 {
     public partial class App : Application
     {
+        private System.Threading.Mutex instanceMutex;
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
+            instanceMutex = new System.Threading.Mutex(true, @"Local\DBDOverlay.Desktop", out var created);
+            if (!created)
+            {
+                System.Windows.MessageBox.Show("DBD Overlay is already running. Open its window from the taskbar.", "DBD Overlay");
+                instanceMutex.Dispose(); instanceMutex = null;
+                Shutdown(); return;
+            }
             Initialize();
+        }
+
+        protected override void OnExit(ExitEventArgs e)
+        {
+            if (instanceMutex != null) { instanceMutex.ReleaseMutex(); instanceMutex.Dispose(); }
+            base.OnExit(e);
         }
 
         private void Initialize()
@@ -37,12 +51,12 @@ namespace DBDOverlay
                 PresetAction("App configuration", HandleExceptions);
                 PresetAction("App configuration", AddNumToSendKeys);
                 PresetAction("Creating default folders", FileSystem.CreateDefaultFolders);
-                PresetAction("Checking for updates", DownloadManager.Instance.CheckForUpdate);
+                // This local build must not be silently replaced by an upstream release.
                 PresetAction("Checking default language", DownloadManager.Instance.DownloadDefaultLanguage);
                 PresetAction("Loading user settings", ReloadSettings);
                 PresetAction("Loading ReShade filters", ReshadeManager.Instance.SetMapFilterPairs);
                 PresetAction("Initializing Tesseract", ImageReader.Instance.Initialize);
-            };            
+            };
             worker.RunWorkerCompleted += new RunWorkerCompletedEventHandler(FinishLoading);
             worker.RunWorkerAsync();
         }
@@ -55,6 +69,15 @@ namespace DBDOverlay
 
         private void FinishLoading(object sender, RunWorkerCompletedEventArgs e)
         {
+            ((BackgroundWorker)sender).Dispose();
+            if (e.Error != null)
+            {
+                Logger.Fatal(e.Error.ToString());
+                System.Windows.MessageBox.Show("DBD Overlay could not start.\n\n" + e.Error.GetBaseException().Message +
+                    "\n\nYour presets and settings have been kept.", "Startup error");
+                Shutdown(1);
+                return;
+            }
             Current.MainWindow = new MainWindow();
             LoadingWindowController.Window.Close();
             Current.MainWindow.Show();
@@ -96,12 +119,9 @@ namespace DBDOverlay
 
         private void HandleExceptions()
         {
-            AppDomain.CurrentDomain.FirstChanceException += (sender, e) =>
+            AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
             {
-                Logger.Fatal(e.Exception.GetType().Name);
-                Logger.Fatal(e.Exception.Message);
-                Logger.Fatal(e.Exception.StackTrace);
-                Logger.Info("---Close Application with exception---");
+                Logger.Fatal(e.ExceptionObject.ToString());
             };
         }
     }

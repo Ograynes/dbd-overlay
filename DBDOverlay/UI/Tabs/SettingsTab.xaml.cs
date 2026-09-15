@@ -80,22 +80,28 @@ namespace DBDOverlay.UI.Tabs
 
         private void LanguageComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (LanguageComboBox.IsVisible)
+            if (LanguageComboBox.IsVisible && LanguageComboBox.SelectedItem != null)
             {
                 var newLanguage = LanguagesManager.GetValue(LanguageComboBox.SelectedItem.ToString());
+                var previousLanguage = Settings.Default.Language;
                 Settings.Default.Language = newLanguage;
-                Settings.Default.Save();
-                ImageReader.Instance.SetEngine();
+                try { ImageReader.Instance.SetEngine(); Settings.Default.Save(); }
+                catch (System.Exception error)
+                {
+                    Settings.Default.Language = previousLanguage;
+                    System.Windows.MessageBox.Show("Could not load this language. Download it first.\n\n" + error.Message, "Language");
+                }
             }
         }
 
         private void DownloadLanguageComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            DownloadButton.IsEnabled = !FileSystem.GetDownloadedLanguages().ContainsKey(DownloadLanguageComboBox.SelectedItem.ToString());
+            DownloadButton.IsEnabled = DownloadLanguageComboBox.SelectedItem != null && !FileSystem.GetDownloadedLanguages().ContainsKey(DownloadLanguageComboBox.SelectedItem.ToString());
         }
 
         private void Download_Click(object sender, RoutedEventArgs e)
         {
+            if (DownloadLanguageComboBox.SelectedItem == null) return;
             DownloadManager.Instance.DownloadLanguage(LanguagesManager.GetValue(DownloadLanguageComboBox.SelectedItem.ToString()));
         }
 
