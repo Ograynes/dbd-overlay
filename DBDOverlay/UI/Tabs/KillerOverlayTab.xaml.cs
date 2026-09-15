@@ -47,7 +47,7 @@ namespace DBDOverlay.UI.Tabs
         {
             if (!GameCapture.TryGetBounds(out var bounds, false))
             {
-                MessageBox.Show("Open Dead by Daylight in borderless/windowed mode first.");
+                MessageBox.Show("No visible Dead by Daylight window was found. Restore the game if it is minimized, then try again.");
                 return;
             }
             bool wasRunning = KillerMode.Instance.IsActive;

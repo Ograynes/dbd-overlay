@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Drawing;
 using System.Runtime.InteropServices;
 
@@ -8,7 +9,6 @@ namespace DBDOverlay.Core.ImageProcessing
     {
         [StructLayout(LayoutKind.Sequential)] private struct Rect { public int Left, Top, Right, Bottom; }
         [StructLayout(LayoutKind.Sequential)] private struct Point { public int X, Y; }
-        [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr FindWindow(string cls, string title);
         [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr hwnd, out Rect rect);
         [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr hwnd, ref Point point);
         [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hwnd);
@@ -27,7 +27,7 @@ namespace DBDOverlay.Core.ImageProcessing
             bounds = Rectangle.Empty;
             using (new PhysicalPixels())
             {
-                var hwnd = FindWindow(null, "DeadByDaylight");
+                var hwnd = FindGameWindow(requireForeground);
                 if (hwnd == IntPtr.Zero || IsIconic(hwnd) || (requireForeground && hwnd != GetForegroundWindow())) return false;
                 if (!GetClientRect(hwnd, out var rect)) return false;
                 var origin = new Point();
@@ -35,6 +35,33 @@ namespace DBDOverlay.Core.ImageProcessing
                 bounds = new Rectangle(origin.X, origin.Y, rect.Right, rect.Bottom);
                 return true;
             }
+        }
+
+        private static IntPtr FindGameWindow(bool requireForeground)
+        {
+            // The game's window title can contain trailing spaces or change between builds.
+            // Identify its process instead; never require access to the protected main module.
+            var foreground = GetForegroundWindow();
+            foreach (var name in new[] { "DeadByDaylight-Win64-Shipping", "DeadByDaylight-EGS-Shipping" })
+            {
+                var processes = Process.GetProcessesByName(name);
+                try
+                {
+                    foreach (var process in processes)
+                    {
+                        try
+                        {
+                            var window = process.MainWindowHandle;
+                            if (window != IntPtr.Zero && !IsIconic(window) && (!requireForeground || window == foreground))
+                                return window;
+                        }
+                        catch (InvalidOperationException) { }
+                        catch (System.ComponentModel.Win32Exception) { }
+                    }
+                }
+                finally { foreach (var process in processes) process.Dispose(); }
+            }
+            return IntPtr.Zero;
         }
 
         public static Bitmap Capture(Rectangle area)
