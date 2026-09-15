@@ -8,6 +8,23 @@ namespace DBDOverlay.Tests
 {
     public class DetectionTests
     {
+        [Theory]
+        [InlineData(2, -1)]
+        [InlineData(-2, 1)]
+        public void SmallCalibrationOffsetStillRecognizesHook(int dx, int dy)
+        {
+            using (var reference = new Bitmap(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Fixtures", "hooked.png")))
+            using (var shifted = new Bitmap(reference.Width, reference.Height))
+            {
+                using (var g = Graphics.FromImage(shifted))
+                {
+                    g.Clear(Color.Black);
+                    g.DrawImageUnscaled(reference, dx, dy);
+                }
+                Assert.Equal(DBDOverlay.Core.WindowControllers.KillerOverlay.HudObservation.Hooked,
+                    SurvivorDetector.Classify(shifted, false, 600));
+            }
+        }
         [Fact]
         public void UnhookRequiresLearnedAppearanceAndBlankStillStaysUnknown()
         {

@@ -18,7 +18,9 @@ namespace DBDOverlay.Core.ImageProcessing
                     g.DrawImage(image, new Rectangle(0, 0, normalized.Width, normalized.Height),
                         0, 0, image.Width, image.Height, GraphicsUnit.Pixel);
                 }
-                int actual = 0, expected = 0, overlap = 0;
+                int actual = 0, expected = 0;
+                var actualMask = new bool[reference.Width, reference.Height];
+                var expectedMask = new bool[reference.Width, reference.Height];
                 for (int y = 0; y < reference.Height; y++)
                     for (int x = 0; x < reference.Width; x++)
                     {
@@ -27,10 +29,27 @@ namespace DBDOverlay.Core.ImageProcessing
                         bool onB = b.R + b.G + b.B >= 400;
                         if (onA) actual++;
                         if (onB) expected++;
-                        if (onA && onB) overlap++;
+                        actualMask[x,y] = onA;
+                        expectedMask[x,y] = onB;
                     }
                 if (actual < 4 || expected < 4 || actual == reference.Width * reference.Height || expected == reference.Width * reference.Height) return 0;
-                return 2.0 * overlap / (actual + expected);
+                // Allow only a small translation after resizing. Keep all foreground pixels
+                // in the denominator so shifting cannot hide unrelated portrait content.
+                int bestOverlap = 0;
+                for (int dy = -2; dy <= 2; dy++)
+                    for (int dx = -2; dx <= 2; dx++)
+                    {
+                        int overlap = 0;
+                        for (int y = 0; y < reference.Height; y++)
+                            for (int x = 0; x < reference.Width; x++)
+                            {
+                                int ax = x + dx, ay = y + dy;
+                                if (ax >= 0 && ay >= 0 && ax < reference.Width && ay < reference.Height &&
+                                    expectedMask[x,y] && actualMask[ax,ay]) overlap++;
+                            }
+                        bestOverlap = Math.Max(bestOverlap, overlap);
+                    }
+                return 2.0 * bestOverlap / (actual + expected);
             }
         }
 
