@@ -5,6 +5,8 @@
     <TargetFramework>net48</TargetFramework>
     <LangVersion>latest</LangVersion>
     <GenerateResourceUsePreserializedResources>true</GenerateResourceUsePreserializedResources>
+    <!-- Keep runtime redirects aligned with implementation assemblies, not reference assemblies. -->
+    <AutoGenerateBindingRedirects>false</AutoGenerateBindingRedirects>
     <Nullable>disable</Nullable>
     <UseWPF>true</UseWPF>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
