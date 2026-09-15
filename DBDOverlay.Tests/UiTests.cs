@@ -46,6 +46,7 @@ namespace DBDOverlay.Tests
                     var main = new DBDOverlay.UI.Windows.MainWindow();
                     Assert.Equal(820, main.Width);
                     Assert.NotNull(main.FindName("ViewContent"));
+                    Assert.False(DBDOverlay.Core.WindowControllers.KillerOverlay.KillerOverlayController.Overlay.ShowActivated);
                     DBDOverlay.Core.Reshade.ReshadeManager.Instance.StopReloadTimer();
                 }
                 catch (Exception error) { failure = error; }

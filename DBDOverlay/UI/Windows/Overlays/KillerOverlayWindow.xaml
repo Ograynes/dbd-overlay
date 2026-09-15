@@ -12,6 +12,7 @@
         WindowStyle="None"
         AllowsTransparency="True"
         ShowInTaskbar="False"
+        ShowActivated="False"
         Topmost="True"
         Background="Transparent">
 

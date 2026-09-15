@@ -20,10 +20,12 @@ namespace DBDOverlay.UI.Windows.Overlays
     {
         public int DefaultStyle { get; set; }
         public Rectangle CurrentRect { get; set; }
+        private readonly bool isGameOverlay;
 
         public KillerOverlayWindow(bool isTopMost = true)
         {
             InitializeComponent();
+            isGameOverlay = isTopMost;
             SetBounds();
             Topmost = isTopMost;
         }
@@ -33,7 +35,7 @@ namespace DBDOverlay.UI.Windows.Overlays
             base.OnSourceInitialized(e);
             DefaultStyle = WindowsServices.Instance.SetWindowExTransparent(this);
             KillerOverlayController.Instance.SetTimers();
-            App.Current.MainWindow.Owner = this;
+            ApplyCalibratedBounds();
         }
 
         private void OverlayMouseDown(object sender, MouseButtonEventArgs e)
@@ -96,6 +98,7 @@ namespace DBDOverlay.UI.Windows.Overlays
 
         public void ShowHooks()
         {
+            ApplyCalibratedBounds();
             SetHooksVisibility(Visibility.Visible);
             Show();
         }
@@ -108,6 +111,7 @@ namespace DBDOverlay.UI.Windows.Overlays
 
         public void ShowTimer()
         {
+            ApplyCalibratedBounds();
             SetTimerVisibility(Visibility.Visible);
             Show();
         }
@@ -245,6 +249,17 @@ namespace DBDOverlay.UI.Windows.Overlays
             {
                 SetDefaultBounds(resetPosition);
             }
+        }
+
+        private void ApplyCalibratedBounds()
+        {
+            if (!isGameOverlay || KillerOverlayController.Instance.CanBeMoved) return;
+            bool eight = Settings.Default.Is2v8Mode;
+            if (!HudGeometry.TryParse(eight ? DetectionSettings.Default.EightRegion : DetectionSettings.Default.FourRegion, out var geometry)
+                || !GameCapture.TryGetBounds(out var client, false)) return;
+            var dpi = VisualTreeHelper.GetDpi(this);
+            var rect = HudLabelLayout.Bounds(geometry, client, eight ? 8 : 4, dpi.DpiScaleX, dpi.DpiScaleY);
+            Left = rect.X; Top = rect.Y; Width = rect.Width; Height = rect.Height;
         }
 
         private void SetDefaultBounds(bool resetPosition = true)
