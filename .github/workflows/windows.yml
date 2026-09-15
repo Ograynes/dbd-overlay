@@ -1,0 +1,16 @@
+name: Windows build and tests
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet build DBDOverlay/DBDOverlay.csproj -c Release
+      - run: dotnet test DBDOverlay.Tests/DBDOverlay.Tests.csproj -c Release --logger trx
