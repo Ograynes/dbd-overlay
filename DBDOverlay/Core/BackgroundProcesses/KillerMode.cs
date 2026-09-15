@@ -1,5 +1,6 @@
 ﻿using DBDOverlay.Core.ImageProcessing;
 using DBDOverlay.Properties;
+using DBDOverlay.Core.WindowControllers.KillerOverlay;
 
 namespace DBDOverlay.Core.BackgroundProcesses
 {
@@ -23,12 +24,20 @@ namespace DBDOverlay.Core.BackgroundProcesses
 
         public void RunConditional()
         {
-            if (!IsActive) Run();
+            if (!IsActive && ShouldRun(Settings.Default.IsHookMode, Settings.Default.IsPostUnhookTimerMode, Settings.Default.IsSidePanelMode)) Run();
         }
+
+        public static bool ShouldRun(bool hooks, bool timer, bool sidePanel) => hooks || timer || sidePanel;
 
         public void StopConditional()
         {
-            if (Settings.Default.IsHookMode || Settings.Default.IsPostUnhookTimerMode || Settings.Default.IsSidePanelMode) Stop();
+            if (!ShouldRun(Settings.Default.IsHookMode, Settings.Default.IsPostUnhookTimerMode, Settings.Default.IsSidePanelMode)) Stop();
+        }
+
+        public override void Stop()
+        {
+            base.Stop();
+            KillerOverlayController.Instance.CancelTimers();
         }
     }
 }

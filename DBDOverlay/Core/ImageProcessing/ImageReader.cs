@@ -1,4 +1,4 @@
-﻿using DBDOverlay.Core.Extensions;
+using DBDOverlay.Core.Extensions;
 using DBDOverlay.Core.Utils;
 using DBDOverlay.Core.WindowControllers.KillerOverlay;
 using DBDOverlay.Core.WindowControllers.MapOverlay;
@@ -14,6 +14,7 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows.Forms;
+using Application = System.Windows.Application;
 using Tesseract;
 using ImageFormat = System.Drawing.Imaging.ImageFormat;
 using PixelFormat = System.Drawing.Imaging.PixelFormat;
@@ -23,7 +24,6 @@ namespace DBDOverlay.Core.ImageProcessing
 {
     public class ImageReader
     {
-        public event EventHandler<UpdateImageEventArgs> UpdatinghooksImage;
         private int width;
         private int height;
         private readonly double maxScaleManual = 3;
@@ -122,120 +122,38 @@ namespace DBDOverlay.Core.ImageProcessing
 
         public void HandleSurvivors(bool is2v8Mode = false, bool saveImages = false)
         {
-            var watch = Stopwatch.StartNew();
-            int survCount = is2v8Mode ? 8 : 4;
-            var initBitmap = CreateFromScreenArea(is2v8Mode ? RectType.Survivors2v8 : RectType.Survivors, false);
-            if (saveImages) UpdatinghooksImage?.Invoke(this, new UpdateImageEventArgs(initBitmap, hooksThreshold));
-            var bitmap = initBitmap.PreProcess(threshold: hooksThreshold, imageName: saveImages ? "survivors_area" : null);
-
-            var width = bitmap.Width;
-            var height = bitmap.Height / survCount;
-            var statusRectMulti = GetRectMultiplier(is2v8Mode ? RectType.State2v8 : RectType.State);
-            var srcRect = GetRect(statusRectMulti, width, height);
-            var destRect = GetRect(new RectMultiplier(0, 0, statusRectMulti.Width, statusRectMulti.Height), width, height);
-
-            for (int i = 0; i < survCount; i++)
+            int generation = KillerOverlayController.Instance.DetectionGeneration;
+            if (!GameCapture.TryGetBounds(out var client))
             {
-                var piece = new Bitmap(destRect.Width, destRect.Height);
-                using (Graphics graphics = Graphics.FromImage(piece))
-                {
-                    graphics.DrawImage(bitmap, destRect, srcRect, GraphicsUnit.Pixel);
-                }
-
-                var hookComparison = is2v8Mode
-                    ? Math.Max(Math.Max(Math.Max(Math.Max(piece.Compare(SurvivorStates.Hooked2v8_0),
-                      piece.Compare(SurvivorStates.Hooked2v8_1)), piece.Compare(SurvivorStates.Hooked2v8_2)),
-                      piece.Compare(SurvivorStates.Hooked2v8_3)), piece.Compare(SurvivorStates.Hooked2v8_4))
-                    : Math.Max(Math.Max(piece.Compare(SurvivorStates.Hooked), piece.Compare(SurvivorStates.Hooked2)), piece.Compare(SurvivorStates.Hooked3));
-
-                if (saveImages)
-                {
-                    piece.Save(FileSystem.GetImagePath($"survivor_{i}"), ImageFormat.Png);
-                    Logger.Info($"--- Survivor {i} 'Hooked' image similarity = {hookComparison * 100} %");
-                }
-                KillerOverlayController.Instance.HookedCheck(i, hookComparison);
-                
-                var escapedComparison = is2v8Mode
-                    ? Math.Max(Math.Max(Math.Max(piece.Compare(SurvivorStates.Escaped_2v8_0), piece.Compare(SurvivorStates.Escaped_2v8_1)),
-                      piece.Compare(SurvivorStates.Escaped_2v8_2)), piece.Compare(SurvivorStates.Escaped_2v8_3))
-                    : piece.Compare(SurvivorStates.Escaped);
-
-                var sacrificedComparison = is2v8Mode
-                    ? Math.Max(Math.Max(Math.Max(piece.Compare(SurvivorStates.Sacrificed_2v8_0), piece.Compare(SurvivorStates.Sacrificed_2v8_1)),
-                      piece.Compare(SurvivorStates.Sacrificed_2v8_2)), piece.Compare(SurvivorStates.Sacrificed_2v8_3))
-                    : Math.Max(piece.Compare(SurvivorStates.Sacrificed), piece.Compare(SurvivorStates.Sacrificed2));
-
-                var refreshStates = new Dictionary<string, double>
-                    {
-                        { "Sacrificed", sacrificedComparison },
-                        { "Escaped", escapedComparison },
-                        { "Dead", piece.Compare(SurvivorStates.Dead) }
-                    };
-
-                KillerOverlayController.Instance.RefreshedCheck(i, refreshStates);
-                KillerOverlayController.Instance.UnhookedCheck(i, hookComparison);
-                srcRect.Y += height;
-                piece.Dispose();
+                Application.Current.Dispatcher.Invoke(() => KillerOverlayController.Instance.SuspendDetection());
+                Thread.Sleep(200);
+                return;
             }
-            bitmap.Dispose();
-            watch.Stop();
-
-            var delay = (int)(operationTime - watch.ElapsedMilliseconds);
-            if (delay > 0) Thread.Sleep(delay);
-        }
-
-        public void HandleSurvivorsSmart(bool saveImages = false)
-        {
-            var watch = Stopwatch.StartNew();
-            int survCount = 4;
-            //var bitmap = new Bitmap(@"D:\survivorsSS.png");
-            var bitmap = CreateFromScreenArea(RectType.Survivors, false).PreProcess(threshold: hooksThreshold, imageName: saveImages ? "survivors_area" : null);
-            if (saveImages) bitmap.Save(FileSystem.GetImagePath($"survivors_area"), ImageFormat.Png);
-
-            var width = bitmap.Width;
-            var height = bitmap.Height / survCount;
-            var rect = new Rectangle(0, 0, width, height);
-            var hooked = SurvivorStates.Hooked;
-            //var hookedHuge = new Bitmap(@"D:\survivorhuge.png");
-
-            for (int i = 0; i < survCount; i++)
+            int count = is2v8Mode ? 8 : 4;
+            var cells = DetectionSettings.Default.Geometry(client.Size, is2v8Mode).Cells(client, count);
+            var observations = new HudObservation[count];
+            // Take one coherent frame, not four/eight screenshots from different instants.
+            var area = Rectangle.Union(cells[0], cells[count - 1]);
+            using (var frame = GameCapture.Capture(area))
             {
-                var piece = new Bitmap(rect.Width, rect.Height);
-                using (Graphics graphics = Graphics.FromImage(piece))
+                for (int i = 0; i < count; i++)
                 {
-                    graphics.DrawImage(bitmap, 0, 0, rect, GraphicsUnit.Pixel);
-                }
-
-                //var statusRectMulti = GetRectMultiplier(RectType.State);
-                //var srcRect = GetRect(statusRectMulti, width, height);
-                //if (!srcRect.Width.Equals(hookedHuge.Width)) hookedHuge = hookedHuge.Resize(srcRect.Width, srcRect.Height).ToBlackWhite(400);
-                //hookedHuge.Save(FileSystem.GetImagePath($"survivorOPA"), ImageFormat.Png);
-
-                var hookComparison = piece.Find(hooked);
-                if (saveImages)
-                {
-                    piece.Save(FileSystem.GetImagePath($"survivor_{i}"), ImageFormat.Png);
-                    Logger.Info($"--- Survivor {i} 'Hooked' image similarity = {hookComparison * 100} %");
-                }
-                KillerOverlayController.Instance.HookedCheck(i, hookComparison);
-                KillerOverlayController.Instance.UnhookedCheck(i, hookComparison);
-
-                var refreshStates = new Dictionary<string, double>
+                    var cell = cells[i]; cell.Offset(-area.X, -area.Y);
+                    using (var piece = frame.Clone(cell, PixelFormat.Format32bppArgb))
                     {
-                        { "Sacrificed", piece.Find(SurvivorStates.Sacrificed) },
-                        { "Escaped", piece.Find(SurvivorStates.Escaped) },
-                        { "Dead", piece.Find(SurvivorStates.Dead) }
-                    };
-
-                KillerOverlayController.Instance.RefreshedCheck(i, refreshStates);
-                rect.Y += height;
-                piece.Dispose();
+                        observations[i] = SurvivorDetector.Classify(piece, is2v8Mode, hooksThreshold, () => PortraitReferences.Match(piece, is2v8Mode));
+                        if (saveImages) piece.Save(FileSystem.GetImagePath($"survivor_{i}"), ImageFormat.Png);
+                    }
+                }
             }
-            bitmap.Dispose();
-            watch.Stop();
-            //Logger.Info($"SMART {watch.ElapsedMilliseconds} ms");
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                if (!DBDOverlay.Core.BackgroundProcesses.KillerMode.Instance.IsActive || Settings.Default.Is2v8Mode != is2v8Mode ||
+                    generation != KillerOverlayController.Instance.DetectionGeneration) return;
+                for (int i = 0; i < count; i++) KillerOverlayController.Instance.Observe(i, observations[i]);
+            });
+            Thread.Sleep(200);
         }
-
         public Rectangle GetRect(RectType rectType, int w = 0, int h = 0)
         {
             return GetRect(GetRectMultiplier(rectType), w, h);

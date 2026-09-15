@@ -1,11 +1,9 @@
-﻿using DBDOverlay.Core.Extensions;
+using DBDOverlay.Core.Extensions;
 using DBDOverlay.Core.Utils;
 using DBDOverlay.Properties;
 using DBDOverlay.UI.Styles;
 using DBDOverlay.UI.Windows.Overlays;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using Application = System.Windows.Application;
@@ -30,7 +28,6 @@ namespace DBDOverlay.Core.WindowControllers.KillerOverlay
         private readonly int maxTimerDefault = 60000;
         private readonly int unhookEnduranceDefault = 15000;
         private readonly int unhookEndurance2v8 = 10000;
-        private readonly double threshold = 0.9;
 
         private readonly string defaultTimerValue;
         private readonly char delimiter;
@@ -72,48 +69,50 @@ namespace DBDOverlay.Core.WindowControllers.KillerOverlay
             SetSurvivors();
         }
 
-        public void HookedCheck(int index, double similarity)
-        {
-            if (!Survivors[index].State.Equals(SurvivorState.Hooked) && similarity > threshold)
-            {
-                Logger.Info($"--- Survivor {index} is hooked. 'Hooked' image similarity = {similarity * 100} %");
-                Application.Current.Dispatcher.Invoke(() =>
-                {
-                    Survivors[index].State = SurvivorState.Hooked;
-                    Survivors[index].Hooks++;
-                    HandleAction(KillerOverlayAction.IncrementHooks, index);
-                });
-            }
-        }
+        private readonly List<HookTracker> trackers = new List<HookTracker>();
+        private readonly List<UnhookTimer> timers = new List<UnhookTimer>();
+        private int detectionGeneration;
+        public int DetectionGeneration => Volatile.Read(ref detectionGeneration);
 
-        public void UnhookedCheck(int index, double similarity)
+        public void Observe(int index, HudObservation observation)
         {
-            if (Survivors[index].State.Equals(SurvivorState.Hooked) && similarity < threshold)
+            if (index < 0 || index >= trackers.Count) return;
+            var transition = trackers[index].Observe(observation);
+            if (transition == HookTransition.None) return;
+            Logger.Info($"Survivor {index + 1}: {transition}");
+            timers[index].Cancel();
+            HandleAction(KillerOverlayAction.SetTimerValue, index, defaultTimerValue);
+            HandleAction(KillerOverlayAction.SetDefaultTimer, index);
+            if (transition == HookTransition.Hooked)
             {
-                Logger.Info($"--- Survivor {index} is unhooked. 'Hooked' image similarity = {similarity * 100} %");
+                Survivors[index].State = SurvivorState.Hooked;
+                Survivors[index].Hooks = trackers[index].Hooks;
+                HandleAction(KillerOverlayAction.IncrementHooks, index);
+            }
+            else if (transition == HookTransition.Unhooked)
+            {
                 Survivors[index].State = SurvivorState.Unhooked;
                 RunTimer(index);
             }
         }
 
-        public void RefreshedCheck(int index, Dictionary<string, double> refreshStates)
+        public void SuspendDetection()
         {
-            var max = refreshStates.Values.Max();
-            var pair = refreshStates.FirstOrDefault(x => x.Value.Equals(max));
-
-            if ((Survivors[index].State.Equals(SurvivorState.Hooked) || Survivors[index].State.Equals(SurvivorState.Unhooked)) && pair.Value > threshold)
-            {
-                Logger.Info($"--- Survivor {index} is {pair.Key.ToLower()}. '{pair.Key}' image similarity = {pair.Value * 100} %");
-                Application.Current.Dispatcher.Invoke(() =>
-                {
-                    HandleAction(KillerOverlayAction.ResetHooks, index);
-                    Survivors[index] = new Survivor();
-                    HandleAction(KillerOverlayAction.SetTimerValue, index, defaultTimerValue);
-                    HandleAction(KillerOverlayAction.SetDefaultTimer, index);
-                });
-            }
+            Interlocked.Increment(ref detectionGeneration);
+            foreach (var tracker in trackers) tracker.Observe(HudObservation.Unknown);
         }
 
+        public void CancelTimers()
+        {
+            if (!Application.Current.Dispatcher.CheckAccess())
+            {
+                Application.Current.Dispatcher.Invoke(CancelTimers);
+                return;
+            }
+            SuspendDetection();
+            foreach (var timer in timers) timer.Cancel();
+            SetTimers();
+        }
         public void SetTimers()
         {
             for (int i = 0; i < survivorsCount; i++)
@@ -124,10 +123,14 @@ namespace DBDOverlay.Core.WindowControllers.KillerOverlay
 
         public void ResetSurvivors()
         {
+            SuspendDetection();
             var is2v8Mode = Settings.Default.Is2v8Mode;
             maxTimer = is2v8Mode ? unhookEndurance2v8 : maxTimerDefault;
             survivorsCount = is2v8Mode ? survivorsCount2v8 : survivorsCountDefault;
             unhookEndurance = is2v8Mode ? unhookEndurance2v8 : unhookEnduranceDefault;
+            foreach (var timer in timers) timer.Dispose();
+            timers.Clear();
+            trackers.Clear();
             Survivors.Clear();
             SetSurvivors();
             for (int i = 0; i < survivorsCount; i++)
@@ -143,6 +146,8 @@ namespace DBDOverlay.Core.WindowControllers.KillerOverlay
             for (int i = 1; i <= survivorsCount; i++)
             {
                 Survivors.Add(new Survivor());
+                trackers.Add(new HookTracker());
+                timers.Add(new UnhookTimer());
             }
         }
 
@@ -154,44 +159,22 @@ namespace DBDOverlay.Core.WindowControllers.KillerOverlay
             }
         }
 
-        private void RunTimer(int index)
+        private async void RunTimer(int index)
         {
-            var worker = new BackgroundWorker();
-            worker.DoWork += (s, e) =>
+            var timer = timers[index];
+            await timer.RunAsync(maxTimer, (generation, elapsed) =>
             {
-                Thread.Sleep(unhookAnimationDelay);
-                var watch = Stopwatch.StartNew();
-
-                Application.Current.Dispatcher.Invoke(() =>
-                {
-                    HandleAction(KillerOverlayAction.SetEnduranceTimer, index);
-                });
-
-                while (Survivors[index].State.Equals(SurvivorState.Unhooked) && watch.ElapsedMilliseconds <= maxTimer)
-                {
-                    Application.Current.Dispatcher.Invoke(() =>
-                    {
-                        var elapsedTime = watch.ElapsedMilliseconds;
-                        var time = (elapsedTime / 1000.0).Round(1).ToString();
-                        var newTimerValue = time.IsInt() ? $"{time}{delimiter}0" : time;
-                        HandleAction(KillerOverlayAction.SetTimerValue, index, newTimerValue);
-
-                        if (elapsedTime > unhookEndurance - 100)
-                        {
-                            HandleAction(KillerOverlayAction.SetDefaultTimer, index);
-                        }
-                    });
-                }
-                watch.Stop();
-
-                Application.Current.Dispatcher.Invoke(() =>
+                if (index >= timers.Count || timers[index] != timer || timer.Generation != generation) return;
+                if (elapsed < 0)
                 {
                     HandleAction(KillerOverlayAction.SetTimerValue, index, defaultTimerValue);
-                });
-            };
-            worker.RunWorkerAsync();
+                    HandleAction(KillerOverlayAction.SetDefaultTimer, index);
+                    return;
+                }
+                HandleAction(KillerOverlayAction.SetTimerValue, index, (elapsed / 1000.0).ToString("F1"));
+                HandleAction(elapsed < unhookEndurance ? KillerOverlayAction.SetEnduranceTimer : KillerOverlayAction.SetDefaultTimer, index);
+            }, unhookAnimationDelay);
         }
-
         private void HandleAction(KillerOverlayAction actionType, int survivorIndex, string argument = null)
         {
             if (Settings.Default.IsHookMode || Settings.Default.IsPostUnhookTimerMode) ActionFactory(Overlay, actionType, survivorIndex, argument);

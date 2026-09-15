@@ -1,33 +1,42 @@
-﻿using System.ComponentModel;
+using System;
+using System.Threading.Tasks;
+using DBDOverlay.Core.Utils;
 
 namespace DBDOverlay.Core.BackgroundProcesses
 {
     public abstract class BaseBackgroundProcess
     {
-        public bool IsActive { get; set; } = false;
-        private readonly BackgroundWorker worker = new BackgroundWorker();
+        private readonly object gate = new object();
+        private volatile bool requested;
+        private Task worker;
+        public bool IsActive => requested;
 
         public void Run()
         {
-            IsActive = true;
-            worker.WorkerSupportsCancellation = true;
-            worker.WorkerReportsProgress = true;
-            worker.DoWork += (s, e) =>
+            lock (gate)
             {
-                while (IsActive)
-                {
-                    Action();
-                }
-            };
-            worker.RunWorkerAsync();
+                requested = true;
+                if (worker == null) worker = Task.Run(Loop);
+            }
         }
 
-        public void Stop()
+        public virtual void Stop()
         {
-            if (!IsActive) return;
-            IsActive = false;
-            worker.CancelAsync();
-            worker.Dispose();
+            lock (gate) requested = false;
+        }
+
+        private void Loop()
+        {
+            try { while (requested) Action(); }
+            catch (Exception error) { requested = false; Logger.Error(error.ToString()); }
+            finally
+            {
+                lock (gate)
+                {
+                    worker = null;
+                    if (requested) worker = Task.Run(Loop);
+                }
+            }
         }
 
         protected abstract void Action();
