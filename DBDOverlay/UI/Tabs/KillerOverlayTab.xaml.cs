@@ -45,6 +45,7 @@ namespace DBDOverlay.UI.Tabs
 
         private async System.Threading.Tasks.Task OpenCalibration(bool learn)
         {
+            if (WindowsServices.Instance.IsCalibrating) return;
             if (!GameCapture.TryGetBounds(out var bounds, false))
             {
                 MessageBox.Show("No visible Dead by Daylight window was found. Restore the game if it is minimized, then try again.");
@@ -56,12 +57,32 @@ namespace DBDOverlay.UI.Tabs
             WindowsServices.Instance.CheckActiveWindow();
             var main = Application.Current.MainWindow;
             var previous = main.WindowState;
+            var sidePanel = KillerOverlayController.Window;
+            bool panelWasVisible = sidePanel.IsVisible;
+            var hint = new TextBlock { Margin = new Thickness(14), TextWrapping = TextWrapping.Wrap,
+                Foreground = System.Windows.Media.Brushes.White };
+            var waiting = new Window { Title = "Calibration", Width = 380, Height = 110,
+                ShowActivated = false, ShowInTaskbar = false, Topmost = true,
+                WindowStyle = WindowStyle.ToolWindow, ResizeMode = ResizeMode.NoResize,
+                Background = (System.Windows.Media.Brush)FindResource("DarkestGrayBrush"), Content = hint,
+                Left = SystemParameters.WorkArea.Right - 400, Top = SystemParameters.WorkArea.Top + 20 };
+            bool cancelled = false;
+            waiting.Closed += (s, e) => cancelled = true;
             KillerOverlayController.Overlay.Hide();
             main.WindowState = WindowState.Minimized;
+            sidePanel.Hide();
             try
             {
-                await System.Threading.Tasks.Task.Delay(350);
-                if (!GameCapture.TryGetBounds(out bounds)) throw new System.InvalidOperationException("Bring Dead by Daylight to the foreground before calibrating.");
+                hint.Text = "Click inside Dead by Daylight. Calibration will open automatically. Close this message to cancel.";
+                waiting.Show();
+                bool ready = await CalibrationFocusWait.WaitAsync(
+                    () => GameCapture.TryGetBounds(out bounds), () => cancelled,
+                    seconds => hint.Text = $"Click inside Dead by Daylight ({seconds}s). Calibration opens automatically. Close to cancel.",
+                    () => System.Threading.Tasks.Task.Delay(200));
+                if (!ready) return;
+                waiting.Hide();
+                await System.Threading.Tasks.Task.Delay(200);
+                if (!GameCapture.TryGetBounds(out bounds)) return;
                 using (var snapshot = GameCapture.Capture(bounds))
                 {
                     var dialog = new DBDOverlay.UI.Windows.HudCalibrationWindow(snapshot, Settings.Default.Is2v8Mode, learn);
@@ -72,7 +93,9 @@ namespace DBDOverlay.UI.Tabs
             catch (System.Exception error) { MessageBox.Show(error.Message, "Calibration"); }
             finally
             {
+                waiting.Close();
                 main.WindowState = previous;
+                if (panelWasVisible) sidePanel.Show();
                 WindowsServices.Instance.IsCalibrating = false;
                 WindowsServices.Instance.CheckActiveWindow();
                 if (wasRunning) KillerMode.Instance.RunConditional();
