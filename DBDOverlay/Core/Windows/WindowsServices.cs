@@ -19,6 +19,7 @@ namespace DBDOverlay.Core.Windows
         public event EventHandler<EventArgs> MapOverlayMoveModeOff;
         public event EventHandler<EventArgs> KillerOverlayMoveModeOff;
         public bool IsMonitoringActive { get; private set; } = false;
+        public bool IsCalibrating { get; set; }
 
         private readonly WinEventDelegate winEventDelegate;
         private static WindowsServices instance;
@@ -171,7 +172,7 @@ namespace DBDOverlay.Core.Windows
         private void HandleActiveWindow(bool isActive)
         {
             HandleHotkeys(isActive);
-            SetOverlaysVisible(!Settings.Default.IsHidingOverlaysMode || isActive);
+            SetOverlaysVisible(!IsCalibrating && (!Settings.Default.IsHidingOverlaysMode || isActive));
         }
 
         private void HandleHotkeys(bool isDBDActive)

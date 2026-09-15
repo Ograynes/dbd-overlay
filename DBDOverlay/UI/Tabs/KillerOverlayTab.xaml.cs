@@ -1,4 +1,4 @@
-﻿using DBDOverlay.Core.BackgroundProcesses;
+using DBDOverlay.Core.BackgroundProcesses;
 using DBDOverlay.Core.Extensions;
 using DBDOverlay.Core.ImageProcessing;
 using DBDOverlay.Core.WindowControllers.KillerOverlay;
@@ -15,7 +15,6 @@ namespace DBDOverlay.UI.Tabs
     {
         private readonly int RGBSum = 765;
         private readonly int defaultHooksThreshold = 600;
-        private Bitmap currentImage;
 
         public KillerOverlayTabView()
         {
@@ -30,11 +29,61 @@ namespace DBDOverlay.UI.Tabs
 
             //if (KillerOverlayController.Instance.CanBeMoved) SelectAreaToggleButton.IsChecked = true;
             WindowsServices.Instance.KillerOverlayMoveModeOff += HandleMoveModeOff;
-            ImageReader.Instance.UpdatinghooksImage += UpdateHooksImage;
 
             SetSliderValue(Settings.Default.HooksThreshold);
         }
 
+        private async void Calibrate_Click(object sender, RoutedEventArgs e)
+        {
+            await OpenCalibration(false);
+        }
+
+        private async void LearnUnhooked_Click(object sender, RoutedEventArgs e)
+        {
+            await OpenCalibration(true);
+        }
+
+        private async System.Threading.Tasks.Task OpenCalibration(bool learn)
+        {
+            if (!GameCapture.TryGetBounds(out var bounds, false))
+            {
+                MessageBox.Show("Open Dead by Daylight in borderless/windowed mode first.");
+                return;
+            }
+            bool wasRunning = KillerMode.Instance.IsActive;
+            KillerMode.Instance.Stop();
+            WindowsServices.Instance.IsCalibrating = true;
+            WindowsServices.Instance.CheckActiveWindow();
+            var main = Application.Current.MainWindow;
+            var previous = main.WindowState;
+            KillerOverlayController.Overlay.Hide();
+            main.WindowState = WindowState.Minimized;
+            try
+            {
+                await System.Threading.Tasks.Task.Delay(350);
+                if (!GameCapture.TryGetBounds(out bounds)) throw new System.InvalidOperationException("Bring Dead by Daylight to the foreground before calibrating.");
+                using (var snapshot = GameCapture.Capture(bounds))
+                {
+                    var dialog = new DBDOverlay.UI.Windows.HudCalibrationWindow(snapshot, Settings.Default.Is2v8Mode, learn);
+                    dialog.ShowDialog();
+                }
+                KillerOverlayController.Instance.ResetSurvivors();
+            }
+            catch (System.Exception error) { MessageBox.Show(error.Message, "Calibration"); }
+            finally
+            {
+                main.WindowState = previous;
+                WindowsServices.Instance.IsCalibrating = false;
+                WindowsServices.Instance.CheckActiveWindow();
+                if (wasRunning) KillerMode.Instance.RunConditional();
+            }
+        }
+
+        private void ResetCalibration_Click(object sender, RoutedEventArgs e)
+        {
+            DetectionSettings.Default.SetRegion(null, Settings.Default.Is2v8Mode);
+            KillerOverlayController.Instance.ResetSurvivors();
+        }
         private void Hooks_Checked(object sender, RoutedEventArgs e)
         {
             Settings.Default.IsHookMode = true;
@@ -104,9 +153,9 @@ namespace DBDOverlay.UI.Tabs
             {
                 KillerOverlayController.Window.HideSidePanel();
             }
-            KillerMode.Instance.StopConditional();
             Settings.Default.IsSidePanelMode = false;
             Settings.Default.Save();
+            KillerMode.Instance.StopConditional();
         }
 
         private void Reset_Click(object sender, RoutedEventArgs e)
@@ -138,7 +187,6 @@ namespace DBDOverlay.UI.Tabs
         {
             var threshold = (ThresholdSlider.Value * RGBSum / 100).Round();
             SetThreshold(threshold);
-            if (currentImage != null) UpdateImageSource(threshold);
         }
 
         private void ResetThreshold_Click(object sender, RoutedEventArgs e)
@@ -174,15 +222,5 @@ namespace DBDOverlay.UI.Tabs
             ThresholdSlider.Value = (threshold * 100.0 / RGBSum).Round();
         }
 
-        private void UpdateHooksImage(object sender, UpdateImageEventArgs e)
-        {
-            currentImage = new Bitmap(e.Image);
-            UpdateImageSource(e.Threshold);
-        }
-
-        private void UpdateImageSource(int threshold)
-        {
-            //SurvivorsAreaImage.Source = new Bitmap(currentImage).PreProcess(threshold: threshold).ToBitmapImage();
-        }
     }
 }
